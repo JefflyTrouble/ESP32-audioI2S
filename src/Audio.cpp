@@ -1507,11 +1507,13 @@ int Audio::read_FLAC_Header(uint8_t* data, size_t len) {
         m_controlCounter = FLAC_OKAY;
         m_audioDataStart = headerSize;
         m_audioDataSize = m_contentlength - m_audioDataStart;
+#ifndef AUDIO_NO_SD_FS
         if(picLen) {
             size_t pos = audiofile.position();
             audio_id3image(audiofile, picPos, picLen);
             audiofile.seek(pos); // the filepointer could have been changed by the user, set it back
         }
+#endif // AUDIO_NO_SD_FS
         AUDIO_INFO("Audio-Length: %u", m_audioDataSize);
         retvalue = 0;
         return 0;
@@ -2200,12 +2202,13 @@ int Audio::read_M4A_Header(uint8_t* data, size_t len) {
         //        m_contentlength = headerSize + m_audioDataSize; // after this mdat atom there may be other atoms
         if(getDatamode() == AUDIO_LOCALFILE) { AUDIO_INFO("Content-Length: %lu", (long unsigned int)m_contentlength); }
 
+#ifndef AUDIO_NO_SD_FS
         if(picLen) {
             size_t pos = audiofile.position();
             audio_id3image(audiofile, picPos, picLen);
             audiofile.seek(pos); // the filepointer could have been changed by the user, set it back
         }
-
+#endif // AUDIO_NO_SD_FS
         m_controlCounter = M4A_OKAY; // that's all
         return 0;
     }
@@ -4475,7 +4478,9 @@ int Audio::sendBytes(uint8_t* data, size_t len) {
                                 // log_i("ogg metadata blockpicture found:");
                                 // for(int i = 0; i < vec.size(); i += 2) { log_i("segment %02i, pos %07i, len %05i", i / 2, vec[i], vec[i + 1]); }
                                 // log_i("---------------------------------------------------------------------------");
+#ifndef AUDIO_NO_SD_FS                                
                                 if(audio_oggimage) audio_oggimage(audiofile, vec);
+#endif // AUDIO_NO_SD_FS                                
                             }
                             break;
         case CODEC_OPUS:    if(m_decodeError == OPUS_PARSE_OGG_DONE) return bytesDecoded; // nothing to play
@@ -4491,7 +4496,9 @@ int Audio::sendBytes(uint8_t* data, size_t len) {
                                 // log_i("ogg metadata blockpicture found:");
                                 // for(int i = 0; i < vec.size(); i += 2) { log_i("segment %02i, pos %07i, len %05i", i / 2, vec[i], vec[i + 1]); }
                                 // log_i("---------------------------------------------------------------------------");
+#ifndef AUDIO_NO_SD_FS                                
                                 if(audio_oggimage) audio_oggimage(audiofile, vec);
+#endif // AUDIO_NO_SD_FS
                             }
                             break;
         case CODEC_VORBIS:  if(m_decodeError == VORBIS_PARSE_OGG_DONE) return bytesDecoded; // nothing to play
@@ -4507,7 +4514,9 @@ int Audio::sendBytes(uint8_t* data, size_t len) {
                                 // log_i("ogg metadata blockpicture found:");
                                 // for(int i = 0; i < vec.size(); i += 2) { log_i("segment %02i, pos %07i, len %05i", i / 2, vec[i], vec[i + 1]); }
                                 // log_i("---------------------------------------------------------------------------");
+#ifndef AUDIO_NO_SD_FS                                
                                 if(audio_oggimage) audio_oggimage(audiofile, vec);
+#endif // AUDIO_NO_SD_FS                        
                             }
                             break;
     }
