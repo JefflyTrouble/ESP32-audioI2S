@@ -1508,9 +1508,11 @@ int Audio::read_FLAC_Header(uint8_t* data, size_t len) {
         m_audioDataStart = headerSize;
         m_audioDataSize = m_contentlength - m_audioDataStart;
         if(picLen) {
+#ifndef AUDIO_NO_SD_FS
             size_t pos = audiofile.position();
             audio_id3image(audiofile, picPos, picLen);
             audiofile.seek(pos); // the filepointer could have been changed by the user, set it back
+#endif // AUDIO_NO_SD_FS
         }
         AUDIO_INFO("Audio-Length: %u", m_audioDataSize);
         retvalue = 0;
@@ -1929,11 +1931,11 @@ int Audio::read_ID3_Header(uint8_t* data, size_t len) {
                 audio_id3lyrics(audiofile, SYLT_pos, SYLT_size);
                 audiofile.seek(pos); // the filepointer could have been changed by the user, set it back
             }
+#endif // AUDIO_NO_SD_FS
             numID3Header = 0;
             totalId3Size = 0;
             for(int i = 0; i < 3; i++) APIC_pos[i] = 0;  // delete all
             for(int i = 0; i < 3; i++) APIC_size[i] = 0; // delete all
-#endif // AUDIO_NO_SD_FS
             return 0;
         }
     }
@@ -2201,9 +2203,11 @@ int Audio::read_M4A_Header(uint8_t* data, size_t len) {
         if(getDatamode() == AUDIO_LOCALFILE) { AUDIO_INFO("Content-Length: %lu", (long unsigned int)m_contentlength); }
 
         if(picLen) {
+#ifndef AUDIO_NO_SD_FS
             size_t pos = audiofile.position();
             audio_id3image(audiofile, picPos, picLen);
             audiofile.seek(pos); // the filepointer could have been changed by the user, set it back
+#endif // AUDIO_NO_SD_FS
         }
 
         m_controlCounter = M4A_OKAY; // that's all
@@ -4808,10 +4812,11 @@ bool Audio::setTimeOffset(int sec) {
     // fast forward or rewind the current position in seconds
     // audiosource must be a mp3, aac or wav file
 
-#ifndef AUDIO_NO_SD_FS
-
+#ifdef AUDIO_NO_SD_FS
+    if(!m_avr_bitrate) return false;
+#else
     if(!audiofile || !m_avr_bitrate) return false;
-
+#endif // AUDIO_NO_SD_FS
     uint32_t oneSec = m_avr_bitrate / 8;                 // bytes decoded in one sec
     int32_t  offset = oneSec * sec;                      // bytes to be wind/rewind
     uint32_t startAB = m_audioDataStart;                 // audioblock begin
@@ -4825,7 +4830,6 @@ bool Audio::setTimeOffset(int sec) {
         setFilePos(pos);
         return true;
     }
-#endif // AUDIO_NO_SD_FS
     return false;
 }
 //------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -5828,6 +5832,9 @@ boolean Audio::streamDetection(uint32_t bytesAvail) {
 }
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 void Audio::seek_m4a_ilst() {
+#ifdef AUDIO_NO_SD_FS
+    return;
+#else
     // ilist - item list atom, contains the metadata
 
     /* atom hierarchy (example)_________________________________________________________________________________________
@@ -5934,9 +5941,13 @@ void Audio::seek_m4a_ilst() {
     if(data) free(data);
     audiofile.seek(0);
     return;
+#endif // AUDIO_NO_SD_FS
 }
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 void Audio::seek_m4a_stsz() {
+#ifdef AUDIO_NO_SD_FS
+    return;
+#else
     // stsz says what size each sample is in bytes. This is important for the decoder to be able to start at a chunk,
     // and then go through each sample by its size. The stsz atom can be behind the audio block. Therefore, searching
     // for the stsz atom is only applicable to local files.
@@ -6039,9 +6050,13 @@ noSuccess:
     log_e("m4a atom stsz not found");
     audiofile.seek(0);
     return;
+#endif // AUDIO_NO_SD_FS
 }
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 uint32_t Audio::m4a_correctResumeFilePos(uint32_t resumeFilePos) {
+#ifdef AUDIO_NO_SD_FS
+    return m_audioDataStart;
+#else
     // In order to jump within an m4a file, the exact beginning of an aac block must be found. Since m4a cannot be
     // streamed, i.e. there is no syncword, an imprecise jump can lead to a crash.
 
@@ -6066,9 +6081,13 @@ uint32_t Audio::m4a_correctResumeFilePos(uint32_t resumeFilePos) {
         if(pos >= resumeFilePos) break;
     }
     return pos;
+#endif // AUDIO_NO_SD_FS
 }
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 uint32_t Audio::flac_correctResumeFilePos(uint32_t resumeFilePos) {
+#ifdef AUDIO_NO_SD_FS
+    return m_audioDataStart;
+#else
     // The starting point is the next FLAC syncword
     uint8_t  p1, p2;
     boolean  found = false;
@@ -6090,9 +6109,13 @@ uint32_t Audio::flac_correctResumeFilePos(uint32_t resumeFilePos) {
 
     if(found) return (pos - 2);
     return m_audioDataStart;
+#endif // AUDIO_NO_SD_FS
 }
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 uint32_t Audio::mp3_correctResumeFilePos(uint32_t resumeFilePos) {
+#ifdef AUDIO_NO_SD_FS
+    return m_audioDataStart;
+#else
     // The starting point is the next MP3 syncword
     uint8_t  p1, p2;
     boolean  found = false;
@@ -6114,6 +6137,7 @@ uint32_t Audio::mp3_correctResumeFilePos(uint32_t resumeFilePos) {
     MP3Decoder_ClearBuffer();
     if(found) return (pos - 2);
     return m_audioDataStart;
+#endif // AUDIO_NO_SD_FS
 }
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 uint8_t Audio::determineOggCodec(uint8_t* data, uint16_t len) {
