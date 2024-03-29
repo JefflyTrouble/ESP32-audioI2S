@@ -3,13 +3,10 @@
  *
  *  Created on: Oct 28,2018
  *
- *  Version 3.0.2b
- *  Updated on: May 07,2023
+ *  Version 3.0.8s
+ *  Updated on: Mar 23.2024
  *      Author: Wolle (schreibfaul1)
  */
-
-//#define SDFATFS_USED  // activate for SdFat
-
 
 #pragma once
 #pragma GCC optimize ("Ofast")
@@ -17,65 +14,33 @@
 #include <Arduino.h>
 #include <libb64/cencode.h>
 #include <esp32-hal-log.h>
-
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
-#include <vector>
-#include <driver/i2s.h>
-
 #ifndef AUDIO_NO_SD_FS
-#include <SPI.h>
-#ifdef SDFATFS_USED
-#include <SdFat.h>  // https://github.com/greiman/SdFat
-#else
 #include <SD.h>
 #include <SD_MMC.h>
 #include <SPIFFS.h>
 #include <FS.h>
 #include <FFat.h>
-#endif // SDFATFS_USED
+#endif
+#include <atomic>
 
+#if ESP_IDF_VERSION_MAJOR == 5
+#include <driver/i2s_std.h>
+#else
+#include <driver/i2s.h>
+#endif
 
-#ifdef SDFATFS_USED
-//typedef File32 File;
-typedef FsFile File;
-
-namespace fs {
-    class FS : public SdFat {
-    public:
-        bool begin(SdCsPin_t csPin = SS, uint32_t maxSck = SD_SCK_MHZ(25)) { return SdFat::begin(csPin, maxSck); }
-    };
-
-    class SDFATFS : public fs::FS {
-    public:
-        // sdcard_type_t cardType();
-        uint64_t cardSize() {
-            return totalBytes();
-        }
-        uint64_t usedBytes() {
-            // set SdFatConfig MAINTAIN_FREE_CLUSTER_COUNT non-zero. Then only the first call will take time.
-            return (uint64_t)(clusterCount() - freeClusterCount()) * (uint64_t)bytesPerCluster();
-        }
-        uint64_t totalBytes() {
-            return (uint64_t)clusterCount() * (uint64_t)bytesPerCluster();
-        }
-    };
-}
-
-extern fs::SDFATFS SD_SDFAT;
-
-using namespace fs;
-#define SD SD_SDFAT
-#endif //SDFATFS_USED
-#endif // AUDIO_NO_SD_FS
-
+#ifndef I2S_GPIO_UNUSED
+  #define I2S_GPIO_UNUSED -1 // = I2S_PIN_NO_CHANGE in IDF < 5
+#endif
 using namespace std;
-
 
 extern __attribute__((weak)) void audio_info(const char*);
 extern __attribute__((weak)) void audio_id3data(const char*); //ID3 metadata
 #ifndef AUDIO_NO_SD_FS
 extern __attribute__((weak)) void audio_id3image(File& file, const size_t pos, const size_t size); //ID3 metadata image
+extern __attribute__((weak)) void audio_oggimage(File& file, std::vector<uint32_t> v); //OGG blockpicture
 extern __attribute__((weak)) void audio_id3lyrics(File& file, const size_t pos, const size_t size); //ID3 metadata lyrics
 #endif  // AUDIO_NO_SD_FS
 extern __attribute__((weak)) void audio_eof_mp3(const char*); //end of mp3 file
@@ -84,14 +49,13 @@ extern __attribute__((weak)) void audio_showstation(const char *);
 extern __attribute__((weak)) void audio_bitrate(const char*);
 extern __attribute__((weak)) void audio_commercial(const char*);
 extern __attribute__((weak)) void audio_icyurl(const char*);
+extern __attribute__((weak)) void audio_icylogo(const char*);
 extern __attribute__((weak)) void audio_icydescription(const char*);
 extern __attribute__((weak)) void audio_lasthost(const char*);
 extern __attribute__((weak)) void audio_eof_speech(const char*);
 extern __attribute__((weak)) void audio_eof_stream(const char*); // The webstream comes to an end
 extern __attribute__((weak)) void audio_process_extern(int16_t* buff, uint16_t len, bool *continueI2S); // record audiodata or send via BT
 extern __attribute__((weak)) void audio_process_i2s(uint32_t* sample, bool *continueI2S); // record audiodata or send via BT
-
-
 
 //----------------------------------------------------------------------------------------------------------------------
 
@@ -128,11 +92,13 @@ public:
     size_t   init();                            // set default values
     bool     isInitialized() { return m_f_init; };
     void     setBufsize(int ram, int psram);
+    int32_t  getBufsize();
     void     changeMaxBlockSize(uint16_t mbs);  // is default 1600 for mp3 and aac, set 16384 for FLAC
     uint16_t getMaxBlockSize();                 // returns maxBlockSize
     size_t   freeSpace();                       // number of free bytes to overwrite
     size_t   writeSpace();                      // space fom writepointer to bufferend
     size_t   bufferFilled();                    // returns the number of filled bytes
+    size_t   getMaxAvailableBytes();            // max readable bytes in one block
     void     bytesWritten(size_t bw);           // update writepointer
     void     bytesWasRead(size_t br);           // update readpointer
     uint8_t* getWritePtr();                     // returns the current writepointer
@@ -144,12 +110,12 @@ public:
 
 protected:
     size_t   m_buffSizePSRAM    = UINT16_MAX * 10;   // most webstreams limit the advance to 100...300Kbytes
-    size_t   m_buffSizeRAM      = 1600 * 5;
+    size_t   m_buffSizeRAM      = 1600 * 10;
     size_t   m_buffSize         = 0;
     size_t   m_freeSpace        = 0;
     size_t   m_writeSpace       = 0;
     size_t   m_dataLength       = 0;
-    size_t   m_resBuffSizeRAM   = 1600;     // reserved buffspace, >= one mp3  frame
+    size_t   m_resBuffSizeRAM   = 2048;     // reserved buffspace, >= one wav  frame
     size_t   m_resBuffSizePSRAM = 4096 * 4; // reserved buffspace, >= one flac frame
     size_t   m_maxBlockSize     = 1600;
     uint8_t* m_buffer           = NULL;
@@ -170,12 +136,11 @@ public:
     Audio(bool internalDAC = false, uint8_t channelEnabled = 3, uint8_t i2sPort = I2S_NUM_0); // #99
     ~Audio();
     void setBufsize(int rambuf_sz, int psrambuf_sz);
+    bool openai_speech(const String& api_key, const String& model, const String& input, const String& voice, const String& response_format, const String& speed);
     bool connecttohost(const char* host, const char* user = "", const char* pwd = "");
     bool connecttospeech(const char* speech, const char* lang);
-    bool connecttomarytts(const char* speech, const char* lang, const char* voice);
 #ifndef AUDIO_NO_SD_FS
-    bool connecttoFS(fs::FS &fs, const char* path, uint32_t resumeFilePos = 0);
-    bool connecttoSD(const char* path, uint32_t resumeFilePos = 0);
+    bool connecttoFS(fs::FS &fs, const char* path, int32_t resumeFilePos = -1);
 #endif                           // AUDIO_NO_SD_FS
     bool setFileLoop(bool input);//TEST loop
     void setConnectionTimeout(uint16_t timeout_ms, uint16_t timeout_ms_ssl);
@@ -183,7 +148,7 @@ public:
     bool setFilePos(uint32_t pos);
     bool audioFileSeek(const float speed);
     bool setTimeOffset(int sec);
-    bool setPinout(uint8_t BCLK, uint8_t LRC, uint8_t DOUT, int8_t DIN = I2S_PIN_NO_CHANGE, int8_t MCK = I2S_PIN_NO_CHANGE);
+    bool setPinout(uint8_t BCLK, uint8_t LRC, uint8_t DOUT, int8_t MCLK = I2S_GPIO_UNUSED);
     bool pauseResume();
     bool isRunning() {return m_f_running;}
     void loop();
@@ -191,7 +156,7 @@ public:
     void forceMono(bool m);
     void setBalance(int8_t bal = 0);
     void setVolumeSteps(uint8_t steps);
-    void setVolume(uint8_t vol);
+    void setVolume(uint8_t vol, uint8_t curve = 0);
     uint8_t getVolume();
     uint8_t maxVolume();
     uint8_t getI2sPort();
@@ -206,10 +171,11 @@ public:
     uint32_t getAudioFileDuration();
     uint32_t getAudioCurrentTime();
     uint32_t getTotalPlayingTime();
+    uint16_t getVUlevel();
 
-    esp_err_t i2s_mclk_pin_select(const uint8_t pin);
     uint32_t inBufferFilled(); // returns the number of stored bytes in the inputbuffer
     uint32_t inBufferFree();   // returns the number of free bytes in the inputbuffer
+    uint32_t inBufferSize();   // returns the size of the inputbuffer in bytes
     void setTone(int8_t gainLowPass, int8_t gainBandPass, int8_t gainHighPass);
     void setI2SCommFMT_LSB(bool commFMT);
     int getCodec() {return m_codec;}
@@ -242,6 +208,8 @@ private:
     const char* parsePlaylist_PLS();
     const char* parsePlaylist_ASX();
     const char* parsePlaylist_M3U8();
+    const char* m3u8redirection();
+    uint64_t m3u8_findMediaSeqInURL();
     bool STfromEXTINF(char* str);
     void showCodecParams();
     int  findNextSync(uint8_t* data, size_t len);
@@ -260,8 +228,10 @@ private:
     bool setBitsPerSample(int bits);
     bool setChannels(int channels);
     bool setBitrate(int br);
-    bool playChunk();
-    bool playSample(int16_t sample[2]) ;
+    void playChunk();
+    bool playSample(int16_t sample[2]);
+    void computeVUlevel(int16_t sample[2]);
+    void computeLimit();
     int32_t Gain(int16_t s[2]);
     void showstreamtitle(const char* ml);
     bool parseContentType(char* ct);
@@ -271,8 +241,8 @@ private:
     esp_err_t I2Sstop(uint8_t i2s_num);
     void urlencode(char* buff, uint16_t buffLen, bool spacesOnly = false);
     int16_t* IIR_filterChain0(int16_t iir_in[2], bool clear = false);
-    int16_t* IIR_filterChain1(int16_t* iir_in, bool clear = false);
-    int16_t* IIR_filterChain2(int16_t* iir_in, bool clear = false);
+    int16_t* IIR_filterChain1(int16_t iir_in[2], bool clear = false);
+    int16_t* IIR_filterChain2(int16_t iir_in[2], bool clear = false);
     inline void setDatamode(uint8_t dm){m_datamode=dm;}
     inline uint8_t getDatamode(){return m_datamode;}
     inline uint32_t streamavail(){ return _client ? _client->available() : 0;}
@@ -330,14 +300,14 @@ private:
         return true;
     }
 
-    bool endsWith (const char* base, const char* str) {
-    //fb
-        int slen = strlen(str) - 1;
-        const char *p = base + strlen(base) - 1;
-        while(p > base && isspace(*p)) p--;  // rtrim
+    bool endsWith(const char *base, const char *searchString) {
+        int32_t slen = strlen(searchString);
+        if(slen == 0) return false;
+        const char *p = base + strlen(base);
+    //  while(p > base && isspace(*p)) p--;  // rtrim
         p -= slen;
-        if (p < base) return false;
-        return (strncmp(p, str, slen) == 0);
+        if(p < base) return false;
+        return (strncmp(p, searchString, slen) == 0);
     }
 
     int indexOf (const char* base, const char* str, int startIndex = 0) {
@@ -381,7 +351,7 @@ private:
     }
 
     int specialIndexOf (uint8_t* base, const char* str, int baselen, bool exact = false){
-        int result;  // seek for str in buffer or in header up to baselen, not nullterninated
+        int result = 0;  // seek for str in buffer or in header up to baselen, not nullterninated
         if (strlen(str) > baselen) return -1; // if exact == true seekstr in buffer must have "\0" at the end
         for (int i = 0; i < baselen - strlen(str); i++){
             result = i;
@@ -414,7 +384,7 @@ private:
             base64_encodestate _state;
             base64_init_encodestate(&_state);
             int len = base64_encode_block(&source[0], sourceLength, &buffer[0], &_state);
-            len = base64_encode_blockend((buffer + len), &_state);
+            base64_encode_blockend((buffer + len), &_state);
             memcpy(dest, buffer, strlen(buffer));
             dest[strlen(buffer)] = '\0';
             free(buffer);
@@ -449,10 +419,20 @@ private:
 		    hash += (str[i] - 31) * i * 32;
         }
         return hash;
-	}
+	  }
+    char* x_strdup(const char* str){
+        if(m_f_psramFound){
+            char* s = (char*)ps_malloc(strlen(str) + 1);
+            strcpy(s, str);
+            return s;
+        }
+        else{
+            return strdup(str);
+        }
+    }
 
 private:
-    const char *codecname[9] = {"unknown", "WAV", "MP3", "AAC", "M4A", "FLAC", "AACP", "OPUS" };
+    const char *codecname[10] = {"unknown", "WAV", "MP3", "AAC", "M4A", "FLAC", "AACP", "OPUS", "OGG", "VORBIS" };
     enum : int { APLL_AUTO = -1, APLL_ENABLE = 1, APLL_DISABLE = 0 };
     enum : int { EXTERNAL_I2S = 0, INTERNAL_DAC = 1, INTERNAL_PDM = 2 };
     enum : int { FORMAT_NONE = 0, FORMAT_M3U = 1, FORMAT_PLS = 2, FORMAT_ASX = 3, FORMAT_M3U8 = 4};
@@ -488,18 +468,30 @@ private:
     WiFiClientSecure      clientsecure; // @suppress("Abstract class cannot be instantiated")
     WiFiClient*           _client = nullptr;
     SemaphoreHandle_t     mutex_audio;
-    i2s_config_t          m_i2s_config = {}; // stores values for I2S driver
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#if ESP_IDF_VERSION_MAJOR == 5
+    i2s_chan_handle_t     m_i2s_tx_handle = {};
+    i2s_chan_config_t     m_i2s_chan_cfg = {}; // stores I2S channel values
+    i2s_std_config_t      m_i2s_std_cfg = {};  // stores I2S driver values
+#else
+    i2s_config_t          m_i2s_config = {};
     i2s_pin_config_t      m_pin_config = {};
-    std::vector<char*>    m_playlistContent; // m3u8 playlist buffer
-    std::vector<char*>    m_playlistURL;     // m3u8 streamURLs buffer
+#endif
+#pragma GCC diagnostic pop
+
+    std::vector<char*>    m_playlistContent;  // m3u8 playlist buffer
+    std::vector<char*>    m_playlistURL;      // m3u8 streamURLs buffer
     std::vector<uint32_t> m_hashQueue;
 
-    const size_t    m_frameSizeWav    = 1024;
+    const size_t    m_frameSizeWav    = 2048;
     const size_t    m_frameSizeMP3    = 1600;
     const size_t    m_frameSizeAAC    = 1600;
     const size_t    m_frameSizeFLAC   = 4096 * 4;
     const size_t    m_frameSizeOPUS   = 1024;
     const size_t    m_frameSizeVORBIS = 4096 * 2;
+    const size_t    m_outbuffSize     = 4096 * 2;
 
     static const uint8_t m_tsPacketSize  = 188;
     static const uint8_t m_tsHeaderSize  = 4;
@@ -507,7 +499,9 @@ private:
     char*           m_ibuff = nullptr;              // used in audio_info()
     char*           m_chbuf = NULL;
     uint16_t        m_chbufSize = 0;                // will set in constructor (depending on PSRAM)
+    uint16_t        m_ibuffSize = 0;                // will set in constructor (depending on PSRAM)
     char*           m_lastHost = NULL;              // Store the last URL to a webstream
+    char*           m_lastM3U8host = NULL;
     char*           m_playlistBuff = NULL;          // stores playlistdata
     const uint16_t  m_plsBuffEntryLen = 256;        // length of each entry in playlistBuff
     filter_t        m_filter[3];                    // digital filters
@@ -519,9 +513,11 @@ private:
     uint32_t        m_metacount = 0;                // counts down bytes between metadata
     int             m_controlCounter = 0;           // Status within readID3data() and readWaveHeader()
     int8_t          m_balance = 0;                  // -16 (mute left) ... +16 (mute right)
-    uint16_t        m_vol=64;                       // volume
+    uint16_t        m_vol = 21;                     // volume
     uint8_t         m_vol_steps = 21;               // default
-    int32_t         m_vol_step_div = 21 * 21;       //
+    double          m_limit_left = 0;               // limiter 0 ... 1, left channel
+    double          m_limit_right = 0;              // limiter 0 ... 1, right channel
+    uint8_t         m_curve = 0;                    // volume characteristic
     uint8_t         m_bitsPerSample = 16;           // bitsPerSample
     uint8_t         m_channels = 2;
     uint8_t         m_i2s_num = I2S_NUM_0;          // I2S_NUM_0 or I2S_NUM_1
@@ -532,11 +528,13 @@ private:
     uint8_t         m_filterType[2];                // lowpass, highpass
     uint8_t         m_streamType = ST_NONE;
     uint8_t         m_ID3Size = 0;                  // lengt of ID3frame - ID3header
+    uint8_t         m_vuLeft = 0;                   // average value of samples, left channel
+    uint8_t         m_vuRight = 0;                  // average value of samples, right channel
     int16_t*        m_outBuff = NULL;               // Interleaved L/R
-    int16_t         m_validSamples = 0;
-    int16_t         m_curSample = 0;
+    std::atomic<int16_t>  m_validSamples = {0};     // #144
+    std::atomic<int16_t>  m_curSample{0};
+    std::atomic<uint16_t> m_datamode{0};            // Statemaschine
     int16_t         m_decodeError = 0;              // Stores the return value of the decoder
-    uint16_t        m_datamode = 0;                 // Statemaschine
     uint16_t        m_streamTitleHash = 0;          // remember streamtitle, ignore multiple occurence in metadata
     uint16_t        m_timeout_ms = 250;
     uint16_t        m_timeout_ms_ssl = 2700;
@@ -549,10 +547,11 @@ private:
     uint32_t        m_metaint = 0;                  // Number of databytes between metadata
     uint32_t        m_chunkcount = 0 ;              // Counter for chunked transfer
     uint32_t        m_t0 = 0;                       // store millis(), is needed for a small delay
+	//uint32_t        m_byteCounter = 0;              // count received data
     uint32_t        m_contentlength = 0;            // Stores the length if the stream comes from fileserver
     uint32_t        m_bytesNotDecoded = 0;          // pictures or something else that comes with the stream
     uint32_t        m_PlayingStartTime = 0;         // Stores the milliseconds after the start of the audio
-    uint32_t        m_resumeFilePos = 0;            // the return value from stopSong() can be entered here
+    int32_t         m_resumeFilePos = -1;           // the return value from stopSong() can be entered here, (-1) is idle
     uint16_t        m_m3u8_targetDuration = 10;     //
     uint32_t        m_stsz_numEntries = 0;          // num of entries inside stsz atom (uint32_t)
     uint32_t        m_stsz_position = 0;            // pos of stsz atom within file
@@ -562,6 +561,7 @@ private:
     bool            m_f_ssl = false;
     bool            m_f_running = false;
     bool            m_f_firstCall = false;          // InitSequence for processWebstream and processLokalFile
+    bool            m_f_firstM3U8call = false;      // InitSequence for m3u8 parsing
     bool            m_f_chunked = false ;           // Station provides chunked transfer
     bool            m_f_firstmetabyte = false;      // True if first metabyte (counter)
     bool            m_f_playing = false;            // valid mp3 stream recognized
@@ -575,6 +575,8 @@ private:
     bool            m_f_continue = false;           // next m3u8 chunk is available
     bool            m_f_ts = true;                  // transport stream
     bool            m_f_m4aID3dataAreRead = false;  // has the m4a-ID3data already been read?
+    bool            m_f_psramFound = false;         // set in constructor, result of psramInit()
+    bool            m_f_timeout = false;            //
     uint8_t         m_f_channelEnabled = 3;         // internal DAC, both channels
     uint32_t        m_audioFileDuration = 0;
     float           m_audioCurrentTime = 0;
