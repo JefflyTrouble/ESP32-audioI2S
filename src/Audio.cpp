@@ -146,7 +146,7 @@ Audio::Audio(bool internalDAC /* = false */, uint8_t channelEnabled /* = I2S_SLO
     m_f_psramFound = psramInit();
     if(m_f_psramFound) m_chbufSize = 4096; else m_chbufSize = 512 + 64;
     if(m_f_psramFound) m_ibuffSize = 4096; else m_ibuffSize = 512 + 64;
-    m_lastHost = (char*)__malloc_heap_psram(512);
+    m_lastHost = (char*)__malloc_heap_psram(1024);
     m_outBuff = (int16_t*)__malloc_heap_psram(m_outbuffSize);
     m_chbuf = (char*)__malloc_heap_psram(m_chbufSize);
     m_ibuff = (char*)__malloc_heap_psram(m_ibuffSize);
@@ -484,7 +484,7 @@ bool Audio::connecttohost(const char* host, const char* user, const char* pwd) {
 
     uint16_t lenHost = strlen(host);
 
-    if(lenHost >= 512 - 10) {
+    if(lenHost >= 1024 - 10) {
         AUDIO_INFO("Hostaddress is too long");
         stopSong();
         xSemaphoreGiveRecursive(mutex_audio);
@@ -2410,7 +2410,7 @@ bool Audio::readPlayListData() {
 
     // reads the content of the playlist and stores it in the vector m_contentlength
     // m_contentlength is a table of pointers to the lines
-    char     pl[512] = {0}; // playlistLine
+    char     pl[1024] = {0}; // playlistLine
     uint32_t ctl = 0;
     int      lines = 0;
     // delete all memory in m_playlistContent
@@ -3688,7 +3688,7 @@ bool Audio::parseHttpResponseHeader() { // this is the response to a GET / reque
     }
     f_time = false;
 
-    char rhl[512] = {0}; // responseHeaderline
+    char rhl[1024] = {0}; // responseHeaderline
     bool ct_seen = false;
 
     while(true) { // outer while
