@@ -15,6 +15,8 @@
 #include "opus_decoder/opus_decoder.h"
 #include "vorbis_decoder/vorbis_decoder.h"
 
+#define AUDIO_LOG 1
+
 
 // optional
 void audio_info(const char *info){
@@ -72,6 +74,7 @@ size_t AudioBuffer::init() {
     if(m_buffer) free(m_buffer);
     m_buffer = NULL;
     if(psramInit() && m_buffSizePSRAM > 0) {
+        log_i("PSRAM found, AudioBuffer will be allocated in PSRAM - %d bytes", m_buffSizePSRAM);
         // PSRAM found, AudioBuffer will be allocated in PSRAM
         m_f_psram = true;
         m_buffSize = m_buffSizePSRAM;
@@ -80,10 +83,12 @@ size_t AudioBuffer::init() {
     }
     if(m_buffer == NULL) {
         // PSRAM not found, not configured or not enough available
+        log_i("PSRAM not found, not configured or not enough available");
         m_f_psram = false;
         m_buffer = (uint8_t*)heap_caps_calloc(m_buffSizeRAM, sizeof(uint8_t), MALLOC_CAP_DEFAULT | MALLOC_CAP_INTERNAL);
         m_buffSize = m_buffSizeRAM - m_resBuffSizeRAM;
     }
+    log_i("m_buffSize %d bytes", m_buffSize);
     if(!m_buffer) return 0;
     m_f_init = true;
     resetBuffer();
@@ -91,6 +96,7 @@ size_t AudioBuffer::init() {
 }
 
 void AudioBuffer::changeMaxBlockSize(uint16_t mbs) {
+    log_i("changeMaxBlockSize(%d)", mbs);
     m_maxBlockSize = mbs;
     return;
 }
