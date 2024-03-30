@@ -8,7 +8,7 @@
  *
  *  Restrictions:
  *  blocksize must not exceed 16342 bytes
- *  bits per sample must be 8 or 16
+ *  bits per sample must be 8, 16 or 24
  *  num Channels must be 1 or 2
  *
  *
