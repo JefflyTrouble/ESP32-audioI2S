@@ -15,6 +15,39 @@
 #include "opus_decoder/opus_decoder.h"
 #include "vorbis_decoder/vorbis_decoder.h"
 
+
+// optional
+void audio_info(const char *info){
+    log_i("[info] %s", info);
+}
+void audio_id3data(const char *info){  //id3 metadata
+    log_i("[id3data] %s", info);
+}
+void audio_eof_mp3(const char *info){  //end of file
+    log_i("[eof_mp3] %s", info);
+}
+void audio_showstation(const char *info){
+    log_i("[station] %s", info);
+}
+void audio_showstreamtitle(const char *info){
+    log_i("[streamtitle] %s", info);
+}
+void audio_bitrate(const char *info){
+    log_i("[bitrate] %s", info);
+}
+void audio_commercial(const char *info){  //duration in sec
+    log_i("[commercial] %s", info);
+}
+void audio_icyurl(const char *info){  //homepage
+    log_i("[icyurl] %s", info);
+}
+void audio_lasthost(const char *info){  //stream URL played
+    log_i("[lasthost] %s", info);
+}
+void audio_eof_speech(const char *info){
+    log_i("[eof_speech] %s", info);
+}
+
 //------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 AudioBuffer::AudioBuffer(size_t maxBlockSize) {
     // if maxBlockSize isn't set use defaultspace (1600 bytes) is enough for aac and mp3 player
@@ -367,6 +400,7 @@ void Audio::setDefaults() {
 
 //------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 void Audio::setConnectionTimeout(uint16_t timeout_ms, uint16_t timeout_ms_ssl) {
+    log_i("setConnectionTimeout %d %d", timeout_ms, timeout_ms_ssl);
     if(timeout_ms) m_timeout_ms = timeout_ms;
     if(timeout_ms_ssl) m_timeout_ms_ssl = timeout_ms_ssl;
 }
@@ -577,11 +611,11 @@ bool Audio::connecttohost(const char* host, const char* user, const char* pwd) {
     //    strcat(rqh, "User-Agent: Mozilla/5.0\r\n"); #363
     strcat(rqh, "Connection: keep-alive\r\n\r\n");
 
-    //    if(ESP_ARDUINO_VERSION_MAJOR == 2 && ESP_ARDUINO_VERSION_MINOR == 0 && ESP_ARDUINO_VERSION_PATCH >= 3){
-    //        m_timeout_ms_ssl = UINT16_MAX;  // bug in v2.0.3 if hostwoext is a IPaddr not a name
-    //        m_timeout_ms = UINT16_MAX;  // [WiFiClient.cpp:253] connect(): select returned due to timeout 250 ms for
-    //        fd 48
-    //    } fix in V2.0.8
+    if(ESP_ARDUINO_VERSION_MAJOR == 2 && ESP_ARDUINO_VERSION_MINOR == 0 && ESP_ARDUINO_VERSION_PATCH >= 3){
+        log_w("Using timeout patch");
+        m_timeout_ms_ssl = UINT16_MAX;  // bug in v2.0.3 if hostwoext is a IPaddr not a name
+        m_timeout_ms = UINT16_MAX;  // [WiFiClient.cpp:253] connect(): select returned due to timeout 250 ms for fd 48
+    }
 
     bool res = true; // no need to reconnect if connection exists
 
