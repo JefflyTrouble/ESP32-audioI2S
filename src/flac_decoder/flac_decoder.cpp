@@ -772,7 +772,10 @@ int8_t flacDecodeFrame(uint8_t *inbuf, int *bytesLeft){
         if(FLACFrameHeader->sampleSizeCode == 5) FLACMetadataBlock->bitsPerSample = 20;
         if(FLACFrameHeader->sampleSizeCode == 6) FLACMetadataBlock->bitsPerSample = 24;
     }
-    if(FLACMetadataBlock->bitsPerSample > 16) return ERR_FLAC_BITS_PER_SAMPLE_TOO_BIG;
+    if(FLACMetadataBlock->bitsPerSample > 16){
+        log_e("Error: bitsPerSample too big ,%i bits", FLACMetadataBlock->bitsPerSample );
+        return ERR_FLAC_BITS_PER_SAMPLE_TOO_BIG;
+    }
     if(FLACMetadataBlock->bitsPerSample < 8 ) return ERR_FLAG_BITS_PER_SAMPLE_UNKNOWN;
     if(!FLACMetadataBlock->sampleRate){
         if(FLACFrameHeader->sampleRateCode == 1)  FLACMetadataBlock->sampleRate =  88200;
