@@ -1337,8 +1337,8 @@ int Audio::read_WAV_Header(uint8_t* data, size_t len) {
         AUDIO_INFO("DataBlockSize: %u", dbs);
         AUDIO_INFO("BitsPerSample: %u", bps);
 
-        if((bps != 8) && (bps != 16)) {
-            AUDIO_INFO("BitsPerSample is %u,  must be 8 or 16", bps);
+        if((bps != 8) && (bps != 16) && (bps != 24)) {
+            AUDIO_INFO("BitsPerSample is %u,  must be 8, 16 or 24", bps);
             stopSong();
             return -1;
         }
@@ -1510,8 +1510,8 @@ int Audio::read_FLAC_Header(uint8_t* data, size_t len) {
         uint8_t bps = (nextval & 0x01) << 4;
         bps += (*(data + 16) >> 4) + 1;
         m_flacBitsPerSample = bps;
-        if((bps != 8) && (bps != 16)) {
-            log_e("bits per sample must be 8 or 16, is %i", bps);
+        if((bps != 8) && (bps != 16) && (bps != 24)) {
+            log_e("bits per sample must be 8, 16 or 24, is %i", bps);
             stopSong();
             return -1;
         }
@@ -2320,7 +2320,7 @@ void Audio::playChunk() {
             }
         }
 
-        if(getBitsPerSample() == 16) {
+        if(getBitsPerSample() == 16 || getBitsPerSample() == 24) {
             if(getChannels() == 1) {
                 sample[RIGHTCHANNEL] = m_outBuff[m_curSample];
                 sample[LEFTCHANNEL] = m_outBuff[m_curSample];
@@ -2337,6 +2337,7 @@ void Audio::playChunk() {
                 }
             }
         }
+
         if(!pc(sample)) { break; } // playSample in lambda
     }
 }
@@ -4391,8 +4392,8 @@ void Audio::setDecoderItems() {
             if(getFileSize()) m_audioDataSize = getFileSize() - m_audioDataStart;
         }
     }
-    if(getBitsPerSample() != 8 && getBitsPerSample() != 16) {
-        AUDIO_INFO("Bits per sample must be 8 or 16, found %i", getBitsPerSample());
+    if(getBitsPerSample() != 8 && getBitsPerSample() != 16 && getBitsPerSample() != 24) {
+        AUDIO_INFO("Bits per sample must be 8, 16 or 24, found %i", getBitsPerSample());
         stopSong();
     }
     if(getChannels() != 1 && getChannels() != 2) {
@@ -4935,7 +4936,7 @@ bool Audio::setSampleRate(uint32_t sampRate) {
 uint32_t Audio::getSampleRate() { return m_sampleRate; }
 //------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 bool Audio::setBitsPerSample(int bits) {
-    if((bits != 16) && (bits != 8)) return false;
+    if((bits != 24) && (bits != 16) && (bits != 8)) return false;
     m_bitsPerSample = bits;
     return true;
 }
@@ -5730,7 +5731,7 @@ size_t Audio::chunkedDataTransfer(uint8_t* bytes) {
         if(b > 9) b = b - 7;  // Translate A..F to 10..15
         chunksize = (chunksize << 4) + b;
     }
-    if(m_f_Log) log_i("chunksize %d", chunksize);
+    //if(m_f_Log) log_i("chunksize %d", chunksize);
     *bytes = byteCounter;
     return chunksize;
 }

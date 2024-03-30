@@ -8,7 +8,7 @@
  *
  *  Restrictions:
  *  blocksize must not exceed 16342 bytes
- *  bits per sample must be 8 or 16
+ *  bits per sample must be 8, 16 or 24
  *  num Channels must be 1 or 2
  *
  *
@@ -135,7 +135,7 @@ typedef struct FLACFrameHeader_t {
                               // 100 : 16 bits per sample
                               // 101 : 20 bits per sample
                               // 110 : 24 bits per sample
-    uint8_t sampleSizeCode;   // 111 : reserved
+    uint8_t sampleSizeCode;   // 111 : 32 bits per sample
                               //----------------------------------------------------------------------------------------
     uint32_t totalSamples;    // totalSamplesInStream
                               //----------------------------------------------------------------------------------------
