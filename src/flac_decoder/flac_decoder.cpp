@@ -635,10 +635,10 @@ int8_t FLACDecode(uint8_t *inbuf, int *bytesLeft, short *outbuf){ //  MAIN LOOP
 
         if(s_flacRemainBlockPicLen <= 0 && !s_f_flacNewMetadataBlockPicture) {
             if(s_flacBlockPicItem.size() > 0) { // get blockpic data
-                // log_i("---------------------------------------------------------------------------");
-                // log_i("metadata blockpic found at pos %i, size %i bytes", s_flacBlockPicPos, s_flacBlockPicLen);
-                // for(int i = 0; i < s_flacBlockPicItem.size(); i += 2) { log_i("segment %02i, pos %07i, len %05i", i / 2, s_flacBlockPicItem[i], s_flacBlockPicItem[i + 1]); }
-                // log_i("---------------------------------------------------------------------------");
+                log_i("---------------------------------------------------------------------------");
+                log_i("metadata blockpic found at pos %i, size %i bytes", s_flacBlockPicPos, s_flacBlockPicLen);
+                for(int i = 0; i < s_flacBlockPicItem.size(); i += 2) { log_i("segment %02i, pos %07i, len %05i", i / 2, s_flacBlockPicItem[i], s_flacBlockPicItem[i + 1]); }
+                log_i("---------------------------------------------------------------------------");
                 s_f_flacNewMetadataBlockPicture = true;
             }
         }
@@ -664,7 +664,7 @@ int8_t FLACDecode(uint8_t *inbuf, int *bytesLeft, short *outbuf){ //  MAIN LOOP
             case 1:
                 if(s_flacRemainBlockPicLen > 0){
                     s_flacRemainBlockPicLen -= segmLen;
-                    //log_i("s_flacCurrentFilePos %i, len %i, s_flacRemainBlockPicLen %i", s_flacCurrentFilePos, segmLen, s_flacRemainBlockPicLen);
+                    log_i("s_flacCurrentFilePos %i, len %i, s_flacRemainBlockPicLen %i", s_flacCurrentFilePos, segmLen, s_flacRemainBlockPicLen);
                     s_flacBlockPicItem.push_back(s_flacCurrentFilePos);
                     s_flacBlockPicItem.push_back(segmLen);
                     if(s_flacRemainBlockPicLen <= 0){s_flacPageNr = 2;}
@@ -749,8 +749,8 @@ int8_t FLACDecodeNative(uint8_t *inbuf, int *bytesLeft, short *outbuf){
     alignToByte();
     readUint(16, bytesLeft);
 
-//    s_flacCompressionRatio = (float)m_bytesDecoded / (float)s_blockSize * FLACMetadataBlock->numChannels * (16/8);
-//    log_i("s_flacCompressionRatio % f", s_flacCompressionRatio);
+    s_flacCompressionRatio = (float)m_bytesDecoded / (float)s_blockSize * FLACMetadataBlock->numChannels * (16/8);
+    log_i("s_flacCompressionRatio % f", s_flacCompressionRatio);
     s_flacStatus = DECODE_FRAME;
     return ERR_FLAC_NONE;
 }
