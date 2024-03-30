@@ -726,8 +726,11 @@ int8_t FLACDecodeNative(uint8_t *inbuf, int *bytesLeft, short *outbuf){
 
         for (int i = 0; i < blockSize; i++) {
             for (int j = 0; j < FLACMetadataBlock->numChannels; j++) {
-                int val = s_samplesBuffer[j][i + offset];
+                int32_t val = s_samplesBuffer[j][i + offset];
                 if (FLACMetadataBlock->bitsPerSample == 8) val += 128;
+                if (FLACMetadataBlock->bitsPerSample == 24){
+                    val = static_cast<int16_t>(std::rint(static_cast<int32_t>(val) * 0x7fff / 0x7fffff));
+                }
                 outbuf[2*i+j] = val;
             }
         }
@@ -772,7 +775,7 @@ int8_t flacDecodeFrame(uint8_t *inbuf, int *bytesLeft){
         if(FLACFrameHeader->sampleSizeCode == 5) FLACMetadataBlock->bitsPerSample = 20;
         if(FLACFrameHeader->sampleSizeCode == 6) FLACMetadataBlock->bitsPerSample = 24;
     }
-    if(FLACMetadataBlock->bitsPerSample > 16){
+    if(FLACMetadataBlock->bitsPerSample > 24){
         log_e("Error: bitsPerSample too big ,%i bits", FLACMetadataBlock->bitsPerSample );
         return ERR_FLAC_BITS_PER_SAMPLE_TOO_BIG;
     }
