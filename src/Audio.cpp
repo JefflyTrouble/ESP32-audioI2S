@@ -4412,8 +4412,8 @@ void Audio::setDecoderItems() {
         setBitsPerSample(VORBISGetBitsPerSample());
         setBitrate(VORBISGetBitRate());
     }
-    if(getBitsPerSample() != 8 && getBitsPerSample() != 16) {
-        AUDIO_INFO("Bits per sample must be 8 or 16, found %i", getBitsPerSample());
+    if(getBitsPerSample() != 8 && getBitsPerSample() != 16 && getBitsPerSample() != 24) {
+        AUDIO_INFO("Bits per sample must be 8, 16 or 24, found %i", getBitsPerSample());
         stopSong();
     }
     if(getChannels() != 1 && getChannels() != 2) {
