@@ -797,7 +797,8 @@ int8_t FLACDecodeNative(uint8_t *inbuf, int *bytesLeft, short *outbuf){
     }
 
     alignToByte();
-    readUint(16, bytesLeft);
+    uint16_t framefooter_crc16 = readUint(16, bytesLeft);
+    //log_d("Frame footer crc-16 %X", framefooter_crc16);
 
     //s_flacCompressionRatio = (float)m_bytesDecoded / (float)s_blockSize * FLACMetadataBlock->numChannels * (16/8);
     // log_i("[FLACDecodeNative:%d] s_flacCompressionRatio % f",bl,  s_flacCompressionRatio);
@@ -806,7 +807,10 @@ int8_t FLACDecodeNative(uint8_t *inbuf, int *bytesLeft, short *outbuf){
 }
 //----------------------------------------------------------------------------------------------------------------------
 int8_t flacDecodeFrame(uint8_t *inbuf, int *bytesLeft){
-    readUint(14 + 1, bytesLeft); // synccode + reserved bit
+	if (readUint(14 + 1, bytesLeft) != 0x7FFC) { // synccode + reserved bit
+		log_e("Decoder out of sync");
+		return ERR_FLAC_DECODER_ASYNC;
+	}
     FLACFrameHeader->blockingStrategy = readUint(1, bytesLeft);
     FLACFrameHeader->blockSizeCode = readUint(4, bytesLeft);
     FLACFrameHeader->sampleRateCode = readUint(4, bytesLeft);
@@ -843,7 +847,10 @@ int8_t flacDecodeFrame(uint8_t *inbuf, int *bytesLeft){
         if(FLACFrameHeader->sampleRateCode == 10) FLACMetadataBlock->sampleRate =  48000;
         if(FLACFrameHeader->sampleRateCode == 11) FLACMetadataBlock->sampleRate =  96000;
     }
-    readUint(1, bytesLeft);
+    if (readUint(1, bytesLeft) != 0) { // synccode + reserved bit
+		log_e("Decoder out of sync");
+		return ERR_FLAC_DECODER_ASYNC;
+	}
     uint32_t temp = (readUint(8, bytesLeft) << 24);
     temp = ~temp;
     uint32_t shift = 0x80000000; // Number of leading zeros
@@ -879,7 +886,9 @@ int8_t flacDecodeFrame(uint8_t *inbuf, int *bytesLeft){
     else if (FLACFrameHeader->sampleRateCode == 13 || FLACFrameHeader->sampleRateCode == 14){
         readUint(16, bytesLeft);
     }
-    readUint(8, bytesLeft);
+    uint8_t crc8 = readUint(8, bytesLeft);
+    
+    //log_d("Frame header crc-8 %X", crc8);
     s_flacStatus = DECODE_SUBFRAMES;
     s_blockSizeLeft = s_blockSize;
     return ERR_FLAC_NONE;
@@ -959,7 +968,10 @@ int8_t decodeSubframes(int* bytesLeft){
 //----------------------------------------------------------------------------------------------------------------------
 int8_t decodeSubframe(uint8_t sampleDepth, uint8_t ch, int* bytesLeft) {
     int8_t ret = 0;
-    readUint(1, bytesLeft);
+    if (readUint(1, bytesLeft) != 0) {
+		log_e("Subframe decoder out of sync");
+		return ERR_FLAC_DECODER_ASYNC;
+	}
     uint8_t type = readUint(6, bytesLeft);
     int shift = readUint(1, bytesLeft);
     if (shift == 1) {
