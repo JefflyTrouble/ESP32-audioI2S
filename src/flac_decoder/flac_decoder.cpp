@@ -169,7 +169,7 @@ uint32_t readUint(uint8_t nBits, int *bytesLeft){
         uint8_t temp = *(s_flacInptr + s_rIndex);
         s_rIndex++;
         (*bytesLeft)--;
-        if(*bytesLeft < 0) { log_i("error in bitreader"); vTaskDelay(100);}
+        if(*bytesLeft < 0) { log_i("error in bitreader [%d bytes left]", *bytesLeft); vTaskDelay(100); yield(); }
         s_flac_bitBuffer = (s_flac_bitBuffer << 8) | temp;
         s_flacBitBufferLen += 8;
     }
