@@ -635,10 +635,10 @@ int8_t FLACDecode(uint8_t *inbuf, int *bytesLeft, short *outbuf){ //  MAIN LOOP
 
         if(s_flacRemainBlockPicLen <= 0 && !s_f_flacNewMetadataBlockPicture) {
             if(s_flacBlockPicItem.size() > 0) { // get blockpic data
-                log_i("---------------------------------------------------------------------------");
-                log_i("metadata blockpic found at pos %i, size %i bytes", s_flacBlockPicPos, s_flacBlockPicLen);
-                for(int i = 0; i < s_flacBlockPicItem.size(); i += 2) { log_i("segment %02i, pos %07i, len %05i", i / 2, s_flacBlockPicItem[i], s_flacBlockPicItem[i + 1]); }
-                log_i("---------------------------------------------------------------------------");
+                // log_i("---------------------------------------------------------------------------");
+                // log_i("metadata blockpic found at pos %i, size %i bytes", s_flacBlockPicPos, s_flacBlockPicLen);
+                // for(int i = 0; i < s_flacBlockPicItem.size(); i += 2) { log_i("segment %02i, pos %07i, len %05i", i / 2, s_flacBlockPicItem[i], s_flacBlockPicItem[i + 1]); }
+                // log_i("---------------------------------------------------------------------------");
                 s_f_flacNewMetadataBlockPicture = true;
             }
         }
@@ -664,7 +664,7 @@ int8_t FLACDecode(uint8_t *inbuf, int *bytesLeft, short *outbuf){ //  MAIN LOOP
             case 1:
                 if(s_flacRemainBlockPicLen > 0){
                     s_flacRemainBlockPicLen -= segmLen;
-                    log_i("s_flacCurrentFilePos %i, len %i, s_flacRemainBlockPicLen %i", s_flacCurrentFilePos, segmLen, s_flacRemainBlockPicLen);
+                    //log_i("s_flacCurrentFilePos %i, len %i, s_flacRemainBlockPicLen %i", s_flacCurrentFilePos, segmLen, s_flacRemainBlockPicLen);
                     s_flacBlockPicItem.push_back(s_flacCurrentFilePos);
                     s_flacBlockPicItem.push_back(segmLen);
                     if(s_flacRemainBlockPicLen <= 0){s_flacPageNr = 2;}
@@ -697,18 +697,20 @@ int8_t FLACDecodeNative(uint8_t *inbuf, int *bytesLeft, short *outbuf){
     static int sbl = 0;
 
     if(s_flacStatus != OUT_SAMPLES){
+        //log_i("[FLACDecodeNative:%d] s_flacStatus != OUT_SAMPLES", bl);
         s_rIndex = 0;
         s_flacInptr = inbuf;
     }
 
     while(s_flacStatus == DECODE_FRAME){// Read a ton of header fields, and ignore most of them
+    	//log_i("[FLACDecodeNative:%d] s_flacStatus == DECODE_FRAME", bl);
         int ret = flacDecodeFrame (inbuf, bytesLeft);
         if(ret != 0) return ret;
         if(*bytesLeft < MAX_BLOCKSIZE) return FLAC_DECODE_FRAMES_LOOP; // need more data
     }
 
     if(s_flacStatus == DECODE_SUBFRAMES){
-
+		//log_i("[FLACDecodeNative:%d] s_flacStatus == DECODE_SUBFRAMES", bl);
         // Decode each channel's subframe, then skip footer
         int ret = decodeSubframes(bytesLeft);
         sbl = bl - *bytesLeft;
@@ -717,6 +719,7 @@ int8_t FLACDecodeNative(uint8_t *inbuf, int *bytesLeft, short *outbuf){
     }
 
     if(s_flacStatus == OUT_SAMPLES){  // Write the decoded samples
+    	//log_i("[FLACDecodeNative:%d] s_flacStatus == OUT_SAMPLES",bl);
         // blocksize can be much greater than outbuff, so we can't stuff all in once
         // therefore we need often more than one loop (split outputblock into pieces)
         uint16_t blockSize;
@@ -750,7 +753,7 @@ int8_t FLACDecodeNative(uint8_t *inbuf, int *bytesLeft, short *outbuf){
     readUint(16, bytesLeft);
 
     //s_flacCompressionRatio = (float)m_bytesDecoded / (float)s_blockSize * FLACMetadataBlock->numChannels * (16/8);
-    log_i("s_flacCompressionRatio % f", s_flacCompressionRatio);
+    // log_i("[FLACDecodeNative:%d] s_flacCompressionRatio % f",bl,  s_flacCompressionRatio);
     s_flacStatus = DECODE_FRAME;
     return ERR_FLAC_NONE;
 }
@@ -775,7 +778,7 @@ int8_t flacDecodeFrame(uint8_t *inbuf, int *bytesLeft){
         if(FLACFrameHeader->sampleSizeCode == 5) FLACMetadataBlock->bitsPerSample = 20;
         if(FLACFrameHeader->sampleSizeCode == 6) FLACMetadataBlock->bitsPerSample = 24;
     }
-    if(FLACMetadataBlock->bitsPerSample > 24){
+    if(FLACMetadataBlock->bitsPerSample > 24 /* 32bit supported now in spec*/){
         log_e("Error: bitsPerSample too big ,%i bits", FLACMetadataBlock->bitsPerSample );
         return ERR_FLAC_BITS_PER_SAMPLE_TOO_BIG;
     }
