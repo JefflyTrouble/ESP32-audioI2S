@@ -766,6 +766,12 @@ int16_t convert24bitTo16bit(int32_t input) {
 
 //----------------------------------------------------------------------------------------------------------------------
 int8_t FLACDecodeNative(uint8_t *inbuf, int *bytesLeft, short *outbuf){
+ 
+    const int32_t UINT24_MAX = 0xFFFFFF;
+    const int32_t UINT24_MID = ((0xFFFFFF/2)+1);
+    const int32_t UINT16_MID = ((UINT16_MAX/2)+1);
+    const int32_t UINT8_MID = ((UINT8_MAX/2)+1);
+    
 
     int bl = *bytesLeft;
     static int sbl = 0;
@@ -812,8 +818,46 @@ int8_t FLACDecodeNative(uint8_t *inbuf, int *bytesLeft, short *outbuf){
                 int32_t val = s_samplesBuffer[j][i + s_offset];
                 if (FLACMetadataBlock->bitsPerSample == 8) val += 128;
                 if (FLACMetadataBlock->bitsPerSample == 24){
-                    val = static_cast<int16_t>(std::rint(static_cast<int32_t>(val) * 0x7fff / 0x7fffff));
-                }
+                    //val = static_cast<int16_t>(std::rint(static_cast<int32_t>(val) * 0x7fff / 0x7fffff));
+                    //val = val & 0xffff;
+                    //val >>= 10;
+                    // if( i==0 && j==0) {
+                    //     log_i("byte %X %u %d", val, val, val);
+                    // }
+                    // x=0x7fff, mid24=0x800000, mid16=0x8000, mid8=0x80,(((x+ mid24 - mid16) >>8) - mid16) + mid8
+                    if (i == 0 && j == 0)
+                    {
+                        int32_t original = val;
+                        int32_t val2 = original;
+                        val2 += s_scratch[j];
+                        int32_t j22 = int64_t(val2) + int64_t(UINT24_MID) - int64_t(UINT16_MID);
+                        uint16_t o = 0;
+                        if (j22 < 0) {
+                            o = 0;
+                        } else if (j22 > UINT24_MAX) {
+                            o = UINT16_MAX;
+                        } else {
+                            o = (uint16_t)((j22 >> 8) & 0xffff); // - int64_t(UINT16_MID) + int64_t(UINT8_MID);
+                        }
+                        int32_t newscratch = ((int64_t(j22) - int64_t(UINT24_MID) + int64_t(UINT16_MID)) - int64_t(o));
+                        
+                        val2 = o - int64_t(UINT16_MID) + int64_t(UINT8_MID);
+                        log_i("B %d[%X] -> %d[%X]", original, original, val2, val2);
+                        log_i("S %d[%X] -> %d[%X]", s_scratch[j], s_scratch[j], newscratch, newscratch);
+                    }
+                    uint16_t o = 0;
+                    val += s_scratch[j];
+                    int32_t j2 = int64_t(val) + int64_t(UINT24_MID) - int64_t(UINT16_MID);
+                    if (j2 < 0) {
+                        o = 0;
+                    } else if (j2 > UINT24_MAX) {
+                        o = UINT16_MAX;
+                    } else {
+                        o = (int16_t)((j2 >> 8) & 0xffff); // - int64_t(UINT16_MID) + int64_t(UINT8_MID);
+                    }
+                    s_scratch[j] = ((int64_t(j2) - int64_t(UINT24_MID) + int64_t(UINT16_MID)) - int64_t(o));
+                    val = o - int64_t(UINT16_MID) + int64_t(UINT8_MID);
+                  }
                 outbuf[2*i+j] = val;
             }
         }
