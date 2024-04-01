@@ -96,7 +96,6 @@ size_t AudioBuffer::init() {
 }
 
 void AudioBuffer::changeMaxBlockSize(uint16_t mbs) {
-    log_i("changeMaxBlockSize(%d)", mbs);
     m_maxBlockSize = mbs;
     return;
 }
@@ -406,7 +405,6 @@ void Audio::setDefaults() {
 
 //------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 void Audio::setConnectionTimeout(uint16_t timeout_ms, uint16_t timeout_ms_ssl) {
-    log_i("setConnectionTimeout %d %d", timeout_ms, timeout_ms_ssl);
     if(timeout_ms) m_timeout_ms = timeout_ms;
     if(timeout_ms_ssl) m_timeout_ms_ssl = timeout_ms_ssl;
 }
@@ -2406,7 +2404,6 @@ void Audio::playChunk() {
                 }
             }
         }
-
         if(!pc(sample)) { break; } // playSample in lambda
     }
 }
@@ -3688,7 +3685,6 @@ void Audio::playAudioData() {
     int bytesDecoded = sendBytes(InBuff.getReadPtr(), InBuff.getMaxBlockSize());
 
     if(bytesDecoded < 0) { // no syncword found or decode error, try next chunk
-        log_i("err bytesDecoded %i", bytesDecoded);
         uint8_t next = 200;
         if(InBuff.bufferFilled() < next) next = InBuff.bufferFilled();
         InBuff.bytesWasRead(next); // try next chunk
