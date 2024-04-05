@@ -47,7 +47,7 @@ bool             s_f_flacNewMetadataBlockPicture = false;
 uint8_t          s_flacPageNr = 0;
 int32_t**        s_samplesBuffer = NULL;
 uint16_t         s_maxBlocksize = MAX_BLOCKSIZE;
-int32_t*         s_scratch;
+int32_t*         s_forward_error;
 
 //----------------------------------------------------------------------------------------------------------------------
 //          FLAC INI SECTION
@@ -69,7 +69,7 @@ bool FLACDecoder_AllocateBuffers(void){
     }
 
     if(psramFound()){
-        s_scratch = (int32_t*)ps_malloc(8 * sizeof(int32_t));
+        s_forward_error = (int32_t*)ps_malloc(8 * sizeof(int32_t));
         s_samplesBuffer = (int32_t**)ps_malloc(MAX_CHANNELS * sizeof(int32_t*));
         for (int i = 0; i < MAX_CHANNELS; i++){
             s_samplesBuffer[i] = (int32_t*)ps_malloc(s_maxBlocksize * sizeof(int32_t));
@@ -80,7 +80,7 @@ bool FLACDecoder_AllocateBuffers(void){
         }
     }
     else  {
-        s_scratch = (int32_t*)malloc(8 * sizeof(int32_t));
+        s_forward_error = (int32_t*)malloc(8 * sizeof(int32_t));
         s_samplesBuffer = (int32_t**)malloc(MAX_CHANNELS * sizeof(int32_t*));
         for (int i = 0; i < MAX_CHANNELS; i++){
             s_samplesBuffer[i] = (int32_t*)malloc(s_maxBlocksize * sizeof(int32_t));
@@ -116,7 +116,7 @@ void FLACDecoder_FreeBuffers(){
     if(FLACMetadataBlock)  {free(FLACMetadataBlock);  FLACMetadataBlock  = NULL;}
     if(s_flacStreamTitle)  {free(s_flacStreamTitle);  s_flacStreamTitle  = NULL;}
     if(s_flacVendorString) {free(s_flacVendorString); s_flacVendorString = NULL;}
-    if(s_scratch) {free(s_scratch); s_scratch = NULL;}
+    if(s_forward_error)    {free(s_forward_error);    s_forward_error    = NULL;}
     if(s_samplesBuffer){
         for (int i = 0; i < MAX_CHANNELS; i++){
             if(s_samplesBuffer[i]){free(s_samplesBuffer[i]);}
@@ -169,7 +169,7 @@ uint32_t readUint(uint8_t nBits, int *bytesLeft){
         uint8_t temp = *(s_flacInptr + s_rIndex);
         s_rIndex++;
         (*bytesLeft)--;
-        if(*bytesLeft < 0) { log_i("error in bitreader [%d bytes left]", *bytesLeft); vTaskDelay(100); yield(); }
+        if(*bytesLeft < 0) { log_i("error in bitreader"); vTaskDelay(100);}
         s_flac_bitBuffer = (s_flac_bitBuffer << 8) | temp;
         s_flacBitBufferLen += 8;
     }
@@ -693,6 +693,71 @@ int8_t FLACDecode(uint8_t *inbuf, int *bytesLeft, short *outbuf){ //  MAIN LOOP
     ret = FLACDecodeNative(inbuf, bytesLeft, outbuf);
     return ret;
 }
+
+void dither_one_channel_24_to_16( int32_t* input, int count, int32_t* memory )
+{
+    const int32_t UINT24_MAX = 0xFFFFFF;
+    const int32_t UINT24_MID = ((UINT24_MAX/2)+1);
+    const int32_t UINT16_MID = ((UINT16_MAX/2)+1);
+
+    log_i("First byte %U %X", *input, *input);
+    int32_t m = *memory;
+    while( count-- > 0 ) {
+        int32_t i = *input;
+        i += m;
+        int32_t j = i + UINT24_MID - UINT16_MID;
+        int16_t o;
+        if( j < 0 ) {
+            o = 0;
+        }
+        else if( j > UINT24_MAX ) {
+            o = UINT16_MAX;
+        }
+        else {
+            o = (int16_t)((j>>8)&0xffff);
+        }
+        m = ((j-UINT24_MID+UINT16_MID)-i);
+        *input++ = o;
+    }
+    *memory = m;
+}
+
+
+// Function to round a signed 24-bit pixel value to 16 bits
+int16_t round_to_16_bits(int32_t pixel) {
+    pixel += 0x80;
+
+    return roundl(float((float(pixel)/((1<<24)-1))) * ((1<<16)-1));
+    // Add 0.5 before truncating to ensure proper rounding
+    //return (pixel + (pixel >= 0 ? 0x8000 : -0x8000)) >> 16;
+}
+
+// Function to clip a signed 16-bit value to the range [-32768, 32767]
+int16_t clip_to_16_bits(int32_t value) {
+    if (value < -32768) {
+        return -32768;
+    } else if (value > 32767) {
+        return 32767;
+    } else {
+        return (int16_t)value;
+    }
+}
+
+int16_t convert24bitTo16bit(int32_t input) {
+    // Assuming the input is in the format of 0x00XXXXXX
+    // Mask the input to get only the lower 24 bits
+    input &= 0xFFFFFF;
+
+    // Check if the 24-bit number is negative
+    if (input & 0x800000) {
+        // If negative, set the upper 8 bits to 1's for proper sign extension
+        input |= 0xFF000000;
+    }
+
+    // Right shift by 8 to fit into 16 bits
+    return (int16_t)(input >> 8);
+}
+
 //----------------------------------------------------------------------------------------------------------------------
 int8_t FLACDecodeNative(uint8_t *inbuf, int *bytesLeft, short *outbuf){
  
@@ -706,20 +771,17 @@ int8_t FLACDecodeNative(uint8_t *inbuf, int *bytesLeft, short *outbuf){
     static int sbl = 0;
 
     if(s_flacStatus != OUT_SAMPLES){
-        //log_i("[FLACDecodeNative:%d] s_flacStatus != OUT_SAMPLES", bl);
         s_rIndex = 0;
         s_flacInptr = inbuf;
     }
 
     while(s_flacStatus == DECODE_FRAME){// Read a ton of header fields, and ignore most of them
-    	//log_i("[FLACDecodeNative:%d] s_flacStatus == DECODE_FRAME", bl);
-        int ret = flacDecodeFrame (inbuf, bytesLeft);
+    	int ret = flacDecodeFrame (inbuf, bytesLeft);
         if(ret != 0) return ret;
         if(*bytesLeft < MAX_BLOCKSIZE) return FLAC_DECODE_FRAMES_LOOP; // need more data
     }
 
     if(s_flacStatus == DECODE_SUBFRAMES){
-		//log_i("[FLACDecodeNative:%d] s_flacStatus == DECODE_SUBFRAMES", bl);
         // Decode each channel's subframe, then skip footer
         int ret = decodeSubframes(bytesLeft);
         sbl = bl - *bytesLeft;
@@ -728,58 +790,81 @@ int8_t FLACDecodeNative(uint8_t *inbuf, int *bytesLeft, short *outbuf){
     }
 
     if(s_flacStatus == OUT_SAMPLES){  // Write the decoded samples
-    	//log_i("[FLACDecodeNative:%d] s_flacStatus == OUT_SAMPLES",bl);
-        // blocksize can be much greater than outbuff, so we can't stuff all in once
+    	// blocksize can be much greater than outbuff, so we can't stuff all in once
         // therefore we need often more than one loop (split outputblock into pieces)
         uint16_t blockSize;
         static uint16_t offset = 0;
         if(s_blockSize < s_flacOutBuffSize + offset) blockSize = s_blockSize - offset;
         else blockSize = s_flacOutBuffSize;
-
+        
+        // if (FLACMetadataBlock->bitsPerSample == 24){
+        //     // dither block
+            
+        //     for (int j = 0; j < FLACMetadataBlock->numChannels; j++) {
+        //         dither_one_channel_24_to_16(&(s_samplesBuffer[j][offset]), blockSize, &scratch[j]);
+        //     }
+        // }
+        char output[10];
+    int max_value = 2^16 - 1;
+    int scale_factor = 1.0 / (max_value + 1);
         for (int i = 0; i < blockSize; i++) {
             for (int j = 0; j < FLACMetadataBlock->numChannels; j++) {
                 int32_t val = s_samplesBuffer[j][i + offset];
                 if (FLACMetadataBlock->bitsPerSample == 8) val += 128;
                 if (FLACMetadataBlock->bitsPerSample == 24){
-                    //val = static_cast<int16_t>(std::rint(static_cast<int32_t>(val) * 0x7fff / 0x7fffff));
-                    //val = val & 0xffff;
-                    //val >>= 10;
-                    // if( i==0 && j==0) {
-                    //     log_i("byte %X %u %d", val, val, val);
+                	//val = static_cast<int16_t>(std::rint(static_cast<int32_t>(val) * 0x7fff / 0x7fffff));
+                    // val >>= 8;
+                    // if (val > INT16_MAX) {
+                    //     log_printf("CLIP");
+                    // } else if (val < INT16_MIN) {
+                    //     log_printf("CLIP");
                     // }
-                    // x=0x7fff, mid24=0x800000, mid16=0x8000, mid8=0x80,(((x+ mid24 - mid16) >>8) - mid16) + mid8
-                    if (i == 0 && j == 0)
-                    {
-                        int32_t original = val;
-                        int32_t val2 = original;
-                        val2 += s_scratch[j];
-                        int32_t j22 = int64_t(val2) + int64_t(UINT24_MID) - int64_t(UINT16_MID);
-                        uint16_t o = 0;
-                        if (j22 < 0) {
-                            o = 0;
-                        } else if (j22 > UINT24_MAX) {
-                            o = UINT16_MAX;
+
+                    // // x=0x7fff, mid24=0x800000, mid16=0x8000, mid8=0x80,(((x+ mid24 - mid16) >>8) - mid16) + mid8
+                    // // val=-222359,mid24=0x800000,mid16=0x8000,j=val+mid24+mid16,o=j>>8,s=j - mid24 + mid16 - o
+                   // int32_t sample = val;// + s_forward_error[j];
+                   // int32_t quantized = round_to_16_bits(sample);
+                    // // int16_t clamped = clip_to_16_bits(sample);
+                    
+                    // s_forward_error[j] = sample - (quantized << 8);
+                    if (j==1){
+                        if (0 <= val) {
+                      //      log_printf("%06X ", val & 0xFFFFFF);
                         } else {
-                            o = (uint16_t)((j22 >> 8) & 0xffff); // - int64_t(UINT16_MID) + int64_t(UINT8_MID);
+                            sprintf(output, "%06X", val);
+                            output[0] = output[2];
+                            output[1] = output[3];
+                            output[2] = output[4];
+                            output[3] = output[5];
+                            output[4] = output[6];
+                            output[5] = output[7];
+                            output[6] = 0;
+                        //    log_printf("%s ", output);
                         }
-                        int32_t newscratch = ((int64_t(j22) - int64_t(UINT24_MID) + int64_t(UINT16_MID)) - int64_t(o));
+                    }
+                    val = convert24bitTo16bit(val);
+
+
+                  //if (i == 0 && j == 0)
+                  //  {
+                  //      int32_t original = val;
+                  //      int32_t val2 = original;
+                  //      val2 += s_scratch[j];
+                  //      int32_t j22 = int64_t(val2) + int64_t(UINT24_MID) - int64_t(UINT16_MID);
+                  //      uint16_t o = 0;
+                  //      if (j22 < 0) {
+                  //          o = 0;
+                  //      } else if (j22 > UINT24_MAX) {
+                  //          o = UINT16_MAX;
+                  //      } else {
+                  //          o = (uint16_t)((j22 >> 8) & 0xffff); // - int64_t(UINT16_MID) + int64_t(UINT8_MID);
+                  //      }
+                  //      int32_t newscratch = ((int64_t(j22) - int64_t(UINT24_MID) + int64_t(UINT16_MID)) - int64_t(o));
                         
-                        val2 = o - int64_t(UINT16_MID) + int64_t(UINT8_MID);
-                        log_i("B %d[%X] -> %d[%X]", original, original, val2, val2);
-                        log_i("S %d[%X] -> %d[%X]", s_scratch[j], s_scratch[j], newscratch, newscratch);
-                    }
-                    uint16_t o = 0;
-                    val += s_scratch[j];
-                    int32_t j2 = int64_t(val) + int64_t(UINT24_MID) - int64_t(UINT16_MID);
-                    if (j2 < 0) {
-                        o = 0;
-                    } else if (j2 > UINT24_MAX) {
-                        o = UINT16_MAX;
-                    } else {
-                        o = (int16_t)((j2 >> 8) & 0xffff); // - int64_t(UINT16_MID) + int64_t(UINT8_MID);
-                    }
-                    s_scratch[j] = ((int64_t(j2) - int64_t(UINT24_MID) + int64_t(UINT16_MID)) - int64_t(o));
-                    val = o - int64_t(UINT16_MID) + int64_t(UINT8_MID);
+                   //     val2 = o - int64_t(UINT16_MID) + int64_t(UINT8_MID);
+                  //      log_i("B %d[%X] -> %d[%X]", original, original, val2, val2);
+                  //      log_i("S %d[%X] -> %d[%X]", s_scratch[j], s_scratch[j], newscratch, newscratch);
+                  //  }
                   }
                 outbuf[2*i+j] = val;
             }
@@ -828,8 +913,9 @@ int8_t flacDecodeFrame(uint8_t *inbuf, int *bytesLeft){
         if(FLACFrameHeader->sampleSizeCode == 4) FLACMetadataBlock->bitsPerSample = 16;
         if(FLACFrameHeader->sampleSizeCode == 5) FLACMetadataBlock->bitsPerSample = 20;
         if(FLACFrameHeader->sampleSizeCode == 6) FLACMetadataBlock->bitsPerSample = 24;
+        if(FLACFrameHeader->sampleSizeCode == 7) FLACMetadataBlock->bitsPerSample = 32;
     }
-    if(FLACMetadataBlock->bitsPerSample > 24 /* 32bit supported now in spec*/){
+    if(FLACMetadataBlock->bitsPerSample > 32 /* 32bit supported now in spec*/){
         log_e("Error: bitsPerSample too big ,%i bits", FLACMetadataBlock->bitsPerSample );
         return ERR_FLAC_BITS_PER_SAMPLE_TOO_BIG;
     }
@@ -948,8 +1034,8 @@ int8_t decodeSubframes(int* bytesLeft){
         }
         else if (FLACFrameHeader->chanAsgn == 10) {
             for (int i = 0; i < s_blockSize; i++) {
-                long side =  s_samplesBuffer[1][i];
-                long right = s_samplesBuffer[0][i] - (side >> 1);
+                int64_t side =  int64_t(s_samplesBuffer[1][i]);
+                int64_t right = int64_t(s_samplesBuffer[0][i]) - (side >> 1);
                 s_samplesBuffer[1][i] = right;
                 s_samplesBuffer[0][i] = right + side;
             }
@@ -981,7 +1067,7 @@ int8_t decodeSubframe(uint8_t sampleDepth, uint8_t ch, int* bytesLeft) {
     sampleDepth -= shift;
 
     if(type == 0){  // Constant coding
-        int16_t s= readSignedInt(sampleDepth, bytesLeft);
+       int32_t s= readSignedInt(sampleDepth, bytesLeft);
         for(int i=0; i < s_blockSize; i++){
             s_samplesBuffer[ch][i] = s;
         }
@@ -1049,6 +1135,9 @@ int8_t decodeResiduals(uint8_t warmup, uint8_t ch, int* bytesLeft) {
     uint8_t paramBits = method == 0 ? 4 : 5;
     int escapeParam = (method == 0 ? 0xF : 0x1F);
     int partitionOrder = readUint(4, bytesLeft);
+    if (partitionOrder == 15) {
+        return ERR_FLAC_WRONG_RICE_PARTITION_NR;
+    }
 
     int numPartitions = 1 << partitionOrder;
     if (s_blockSize % numPartitions != 0)
@@ -1077,11 +1166,11 @@ int8_t decodeResiduals(uint8_t warmup, uint8_t ch, int* bytesLeft) {
 void restoreLinearPrediction(uint8_t ch, uint8_t shift) {
 
     for (int i = coefs.size(); i < s_blockSize; i++) {
-        int32_t sum = 0;
+        int64_t sum = 0;
         for (int j = 0; j < coefs.size(); j++){
-            sum += s_samplesBuffer[ch][i - 1 - j] * coefs[j];
+            sum += int64_t(s_samplesBuffer[ch][i - 1 - j]) * int64_t(coefs[j]);
         }
-        s_samplesBuffer[ch][i] += (sum >> shift);
+        s_samplesBuffer[ch][i] += int32_t(sum >> shift);
     }
 }
 //----------------------------------------------------------------------------------------------------------------------
