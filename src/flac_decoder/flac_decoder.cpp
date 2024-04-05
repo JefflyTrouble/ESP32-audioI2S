@@ -706,62 +706,24 @@ void dither_one_channel_24_to_16( int32_t* input, int count, int32_t* memory )
     const int32_t UINT24_MID = ((UINT24_MAX/2)+1);
     const int32_t UINT16_MID = ((UINT16_MAX/2)+1);
 
-    log_i("First byte %U %X", *input, *input);
     int32_t m = *memory;
     while( count-- > 0 ) {
-        int32_t i = *input;
-        i += m;
-        int32_t j = i + UINT24_MID - UINT16_MID;
-        int16_t o;
-        if( j < 0 ) {
+        int32_t val = *input;
+        uint16_t o = 0;
+        val += m;
+        int32_t j2 = int64_t(val) + int64_t(UINT24_MID) - int64_t(UINT16_MID);
+        if (j2 < 0) {
             o = 0;
-        }
-        else if( j > UINT24_MAX ) {
+        } else if (j2 > UINT24_MAX) {
             o = UINT16_MAX;
+        } else {
+            o = (int16_t)((j2 >> 8) & 0xffff); // - int64_t(UINT16_MID) + int64_t(UINT8_MID);
         }
-        else {
-            o = (int16_t)((j>>8)&0xffff);
-        }
-        m = ((j-UINT24_MID+UINT16_MID)-i);
-        *input++ = o;
+        m = ((int64_t(j2) - int64_t(UINT24_MID) + int64_t(UINT16_MID)) - (int64_t(o)<<8));
+        val = o - int64_t(UINT16_MID) + int64_t(UINT8_MID);
+        *input++ = val;
     }
     *memory = m;
-}
-
-
-// Function to round a signed 24-bit pixel value to 16 bits
-int16_t round_to_16_bits(int32_t pixel) {
-    pixel += 0x80;
-
-    return roundl(float((float(pixel)/((1<<24)-1))) * ((1<<16)-1));
-    // Add 0.5 before truncating to ensure proper rounding
-    //return (pixel + (pixel >= 0 ? 0x8000 : -0x8000)) >> 16;
-}
-
-// Function to clip a signed 16-bit value to the range [-32768, 32767]
-int16_t clip_to_16_bits(int32_t value) {
-    if (value < -32768) {
-        return -32768;
-    } else if (value > 32767) {
-        return 32767;
-    } else {
-        return (int16_t)value;
-    }
-}
-
-int16_t convert24bitTo16bit(int32_t input) {
-    // Assuming the input is in the format of 0x00XXXXXX
-    // Mask the input to get only the lower 24 bits
-    input &= 0xFFFFFF;
-
-    // Check if the 24-bit number is negative
-    if (input & 0x800000) {
-        // If negative, set the upper 8 bits to 1's for proper sign extension
-        input |= 0xFF000000;
-    }
-
-    // Right shift by 8 to fit into 16 bits
-    return (int16_t)(input >> 8);
 }
 
 //----------------------------------------------------------------------------------------------------------------------
@@ -803,61 +765,17 @@ int8_t FLACDecodeNative(uint8_t *inbuf, int *bytesLeft, short *outbuf){
         if(s_blockSize < s_flacOutBuffSize + s_offset) blockSize = s_blockSize - s_offset;
         else blockSize = s_flacOutBuffSize;
         
-        // if (FLACMetadataBlock->bitsPerSample == 24){
-        //     // dither block
-            
-        //     for (int j = 0; j < FLACMetadataBlock->numChannels; j++) {
-        //         dither_one_channel_24_to_16(&(s_samplesBuffer[j][offset]), blockSize, &scratch[j]);
-        //     }
-        // }
-        char output[10];
-    int max_value = 2^16 - 1;
-    int scale_factor = 1.0 / (max_value + 1);
+        if (FLACMetadataBlock->bitsPerSample == 24){
+            // dither block
+            for (int j = 0; j < FLACMetadataBlock->numChannels; j++) {
+                dither_one_channel_24_to_16(&(s_samplesBuffer[j][offset]), blockSize, &scratch[j]);
+            }
+        }
+
         for (int i = 0; i < blockSize; i++) {
             for (int j = 0; j < FLACMetadataBlock->numChannels; j++) {
                 int32_t val = s_samplesBuffer[j][i + s_offset];
                 if (FLACMetadataBlock->bitsPerSample == 8) val += 128;
-                if (FLACMetadataBlock->bitsPerSample == 24){
-                    //val = static_cast<int16_t>(std::rint(static_cast<int32_t>(val) * 0x7fff / 0x7fffff));
-                    //val = val & 0xffff;
-                    //val >>= 10;
-                    // if( i==0 && j==0) {
-                    //     log_i("byte %X %u %d", val, val, val);
-                    // }
-                    // x=0x7fff, mid24=0x800000, mid16=0x8000, mid8=0x80,(((x+ mid24 - mid16) >>8) - mid16) + mid8
-                    if (i == 0 && j == 0)
-                    {
-                        int32_t original = val;
-                        int32_t val2 = original;
-                        val2 += s_scratch[j];
-                        int32_t j22 = int64_t(val2) + int64_t(UINT24_MID) - int64_t(UINT16_MID);
-                        uint16_t o = 0;
-                        if (j22 < 0) {
-                            o = 0;
-                        } else if (j22 > UINT24_MAX) {
-                            o = UINT16_MAX;
-                        } else {
-                            o = (uint16_t)((j22 >> 8) & 0xffff); // - int64_t(UINT16_MID) + int64_t(UINT8_MID);
-                        }
-                        int32_t newscratch = ((int64_t(j22) - int64_t(UINT24_MID) + int64_t(UINT16_MID)) - int64_t(o));
-                        
-                        val2 = o - int64_t(UINT16_MID) + int64_t(UINT8_MID);
-                        log_i("B %d[%X] -> %d[%X]", original, original, val2, val2);
-                        log_i("S %d[%X] -> %d[%X]", s_scratch[j], s_scratch[j], newscratch, newscratch);
-                    }
-                    uint16_t o = 0;
-                    val += s_scratch[j];
-                    int32_t j2 = int64_t(val) + int64_t(UINT24_MID) - int64_t(UINT16_MID);
-                    if (j2 < 0) {
-                        o = 0;
-                    } else if (j2 > UINT24_MAX) {
-                        o = UINT16_MAX;
-                    } else {
-                        o = (int16_t)((j2 >> 8) & 0xffff); // - int64_t(UINT16_MID) + int64_t(UINT8_MID);
-                    }
-                    s_scratch[j] = ((int64_t(j2) - int64_t(UINT24_MID) + int64_t(UINT16_MID)) - int64_t(o));
-                    val = o - int64_t(UINT16_MID) + int64_t(UINT8_MID);
-                  }
                 outbuf[2*i+j] = val;
             }
         }
